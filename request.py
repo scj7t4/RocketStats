@@ -21,17 +21,33 @@ class RocketLeagueAPI(object):
     KEEP_ALIVE_URL = "https://psyonix-rl.appspot.com/Population/UpdatePlayerCurrentGame/"
     BUILD_ID = 144580275
 
-
     def __init__(self, call_proc_key):
+        """
+        Sets the CALL_PROC_KEY, which seems to be a consistent value across launches
+        of the game.
+        """
         self.call_proc_key = call_proc_key
         pass
 
     def UseSession(self, call_proc_key, session_id):
+        """
+        Sets the session ID directly if login is not a viable option.
+        """
         self.session_id = session_id
 
-    def Login(self, secret_key, player_name, player_id, auth_code, call_proc_key):
+    def Login(self, secret_key, player_name, player_id):
         """
-        Doesn't work -- auth code changes every time the program is launched, don't know how to generate.
+        Login works as follows:
+            1) The user sends a message with a LoginSecretKey to the server.
+               LoginSecretKey seems to persist between sessions.
+            2) The server responds with a session ID.
+            3) At this point, the session is active and can be used to query for
+               stats. The actual game sends another message with an AuthCode
+               which seems to originate from Steam and changes slightly each time the
+               game is launched. If try to send one, we get locked out of the API.
+            4) Instead, you can send the player status message (which seems to just
+               announce you are at the start screen and don't have local multiplayer)
+               to engage the session and keep it alive.
         """
         hdrs = {
             'User-Agent': 'UE3-TA,UE3Ver(10897)',
@@ -50,18 +66,12 @@ class RocketLeagueAPI(object):
             raise ValueError("Server didn't respond with 1 (Login Step 1)")
         self.session_id = req.headers['SessionID']
         print "Got session ID {}".format(self.session_id)
-        """
-        hdrs['SessionID'] = self.session_id
-        payload['AuthCode'] = self.auth_code
-        payload['IssuerID'] = 0
-        req = requests.post(self.LOGIN_URL, data=payload, headers=hdrs)
-        print req.text
-        if req.text != "1" or req.status_code != 200:
-            raise ValueError("Server didn't respond with 1 (Login Step 2)")
-        """
         self.KeepAlive()
 
     def KeepAlive(self):
+        """
+        Keeps a session alive by announcing the "player" is on the homescreen
+        """
         hdrs = self.MakeHeaders()
         payload = {
             'PlaylistID': 0,
@@ -73,6 +83,9 @@ class RocketLeagueAPI(object):
             raise ValueError("Server didn't like keep alive message")
          
     def MakeHeaders(self):
+        """
+        Makes the headers used by all API requests.
+        """
         hdrs = {
             'User-Agent': 'UE3-TA,UE3Ver(10897)',
             'CallProcKey': self.call_proc_key,
@@ -99,6 +112,13 @@ class RocketLeagueAPI(object):
         return d
 
     def MakeRequest(self, commands):
+        """
+        Takes in a list of commands of the format expected by MakePayload
+        It makes the request and converts the result into a dictionary.
+        The dictionary is keyed on the command given by the server.
+        The dictionary contains a list containing dictionaries of the processed
+        query strings the API provides.
+        """
         payload = self.MakePayload(commands)
         hdrs = self.MakeHeaders()
         req = requests.post(self.API_URL, data=payload, headers=hdrs)
@@ -114,6 +134,11 @@ class RocketLeagueAPI(object):
         return response
 
     def __getattr__(self, name):
+        """
+        If the command is simple, (just command & args gives a good result)
+        this magic function automatically generates the function so that
+        we don't have to enumerate all the different types.
+        """
         if name.find('Get') == 0:
             return lambda *args: self.MakeRequest([{'proc': name, 'args': list(args)}])
         raise AttributeError("RocketStatsAPI doesn't have attribute {}".format(name))
@@ -172,7 +197,7 @@ class RocketLeagueAPI(object):
 #req = requests.post("https://psyonix-rl.appspot.com/callproc105/", data=payload, headers=hdrs)
 
 rkt = RocketLeagueAPI(CALL_PROC_KEY)
-rkt.Login(SECRET_KEY, PLAYER_NAME, PLAYER_ID, AUTH_CODE, CALL_PROC_KEY)
+rkt.Login(SECRET_KEY, PLAYER_NAME, PLAYER_ID)
 #rkt.UseSession("da05f2d2eb515488f18bc839b89e5f5a")
 
 print rkt.GetLeaderboardValueForUserSteam(PLAYER_ID, "Wins")
